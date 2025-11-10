@@ -5,7 +5,7 @@ from pathlib import Path
 import os
 import json
 import pandas as pd
-from clean.clean_raw_data_helper import (
+from src.clean.clean_raw_data_helper import (
     check_released_date_is_futur,
     days_until_first_discount,
     days_until_first_sales_record,
@@ -317,11 +317,17 @@ def convert_and_clean_json_files(
     return data_list
 
 
-def convert_and_clean_json_files_all(folder_path_games):
+def filter_and_process_raw_json_file(
+    file_path,
+    released_date_filter: datetime,
+    min_price_ps5: float,
+    min_price_ps4: float,
+    min_price_dlc: float,
+):
     # Liste pour stocker toutes les données
     data_list = []
 
-    with open(folder_path_games, "r", encoding="utf-8") as fp:
+    with open(file_path, "r", encoding="utf-8") as fp:
         try:
             try:
                 data_all = json.load(fp)
@@ -379,20 +385,20 @@ def convert_and_clean_json_files_all(folder_path_games):
                         if release_date is None:
                             continue
                         # Date de référence :  sortie ps5
-                        if release_date < datetime(2020, 10, 10):
+                        if release_date < released_date_filter:
                             continue
 
                     # On ne garde que les prix exploitable
                     if is_ps5_li:
-                        if base_price < 4.9:
+                        if base_price < min_price_ps5:
                             continue
 
                     if is_ps4_li:
-                        if base_price < 18.9:
+                        if base_price < min_price_ps4:
                             continue
 
                     if is_dlc_li:
-                        if base_price < 14.9:
+                        if base_price < min_price_dlc:
                             continue
 
                     pssstore_star_rating = get_psstore_start_rating_average(data)
@@ -482,13 +488,13 @@ def convert_and_clean_json_files_all(folder_path_games):
                         sales_history, release_date
                     )
 
-                    # Si pas de price record et que le nombre de jour est important on considère que le jeu n'a pas eu de prix tracké correctement
-                    if days_to_first_price_record > 100 and base_price < 45:
-                        continue
+                    # # Si pas de price record et que le nombre de jour est important on considère que le jeu n'a pas eu de prix tracké correctement
+                    # if days_to_first_price_record > 100 and base_price < 45:
+                    #     continue
 
-                    # Pour les jeux triple AAA on laisse plus de doute
-                    if days_to_first_price_record > 200:
-                        continue
+                    # # Pour les jeux triple AAA on laisse plus de doute
+                    # if days_to_first_price_record > 200:
+                    #     continue
 
                     lowest_price = get_min_price_from_sales_history(sales_history)
 
@@ -503,6 +509,8 @@ def convert_and_clean_json_files_all(folder_path_games):
                         and days_to_first_price_record < 0
                     ):
                         days_to_first_price_record = 0
+
+                    is_dlc = int(is_dlc_li)
 
                     # print(days_from_first_record)
 
@@ -527,7 +535,7 @@ def convert_and_clean_json_files_all(folder_path_games):
                         "is_ps4": is_ps4,
                         "is_ps5": is_ps5,
                         "is_indie": is_indie,
-                        "is_dlc": is_dlc_li,
+                        "is_dlc": is_dlc,
                         "is_vr": is_vr,
                         "is_opti_ps5_pro": isps5pro,
                         "is_ps_exclusive": ps_exclusive,
@@ -574,22 +582,7 @@ def convert_and_clean_json_files_all(folder_path_games):
         except Exception as e:
             print(e)
 
-    return data_list
-
-
-def create_csv(output_format="csv"):
-
-    # data_list_ps5 = convert_and_clean_json_files("rawdatas/games_ps5", is_ps5_li=1)
-    # data_list_ps4 = convert_and_clean_json_files("rawdatas/games_ps4", is_ps4_li=1)
-    # data_list_dlc_ps5 = convert_and_clean_json_files("rawdatas/dlcs_ps5", is_dlc_li=1)
-
-    # data_list = data_list_ps5 + data_list_ps4 + data_list_dlc_ps5
-    target_path_processed_data = os.path.join(
-        Path.cwd(), "data/raw/psstore_all_games.json"
-    )
-    data_list = convert_and_clean_json_files_all(target_path_processed_data)
-
-    # Créer le DataFrame
+        # Créer le DataFrame
     data_frame_games = pd.DataFrame(data_list)
     # Le problème est que pandas convertit automatiquement en float quand il y a un mélange de None et d'entiers dans une colonne
 
@@ -616,41 +609,58 @@ def create_csv(output_format="csv"):
     for col in col_to_int_nullable:
         data_frame_games[col] = data_frame_games[col].astype("Int64")
 
-    data_frame_games = remove_id_duplicate_keep_min_nan_optimized(data_frame_games)
-    data_frame_games = remove_game_name_duplicate_keep_min_nan_optimized(
-        data_frame_games
-    )
+    return data_frame_games
 
-    print(
-        f"DataFrame créé avec {len(data_frame_games)} lignes et {len(data_frame_games.columns)} colonnes"
-    )
 
+def create_csv(df: pd.DataFrame, output_format="csv"):
     # Sauvegarder selon le format choisi
 
     if output_format.lower() == "csv":
         output_file = os.path.join(Path.cwd(), "data/processed/games_data.csv")
-        data_frame_games.to_csv(output_file, index=False, encoding="utf-8")
+        df.to_csv(output_file, index=False, encoding="utf-8")
         print(f"Fichier CSV créé: {output_file}")
     elif output_format.lower() == "parquet":
         output_file = os.path.join(Path.cwd(), "data/processed/games_data.parquet")
-        data_frame_games.to_parquet(output_file, index=False, engine="pyarrow")
+        df.to_parquet(output_file, index=False, engine="pyarrow")
         print(f"Fichier Parquet créé: {output_file}")
     else:
         raise ValueError("Format non supporté. Utilisez 'csv' ou 'parquet'")
 
-    return data_frame_games
+    return df
 
 
-if __name__ == "__main__":
+def clean_and_convert():
+    target_path_processed_data = os.path.join(
+        Path.cwd(), "data/raw/psstore_all_games.json"
+    )
+    df = filter_and_process_raw_json_file(
+        target_path_processed_data,
+        released_date_filter=datetime(2020, 10, 10),
+        min_price_ps5=4.9,
+        min_price_ps4=18.9,
+        min_price_dlc=14.9,
+    )
 
-    # Créer CSV
-    df = create_csv(output_format="csv")
+    df = remove_id_duplicate_keep_min_nan_optimized(df)
+    df = remove_game_name_duplicate_keep_min_nan_optimized(df)
 
-    # Ou créer Parquet
-    # df = create_csv(folder_path, output_format="parquet")
-
+    print(f"DataFrame créé avec {len(df)} lignes et {len(df.columns)} colonnes")
     # Afficher un aperçu
     print("\nAperçu des données:")
     print(df.head())
     print("\nInfo du DataFrame:")
     print(df.info())
+
+    # Sauvegarder selon le format choisi
+    create_csv(df, output_format="csv")
+
+    return df
+
+
+if __name__ == "__main__":
+
+    # Créer CSV
+    dataf = clean_and_convert()
+
+    # Ou créer Parquet
+    # df = create_csv(folder_path, output_format="parquet")

@@ -4,7 +4,8 @@ import os
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
+
+# import seaborn as sns
 
 from src.data_cleaner import (
     filter_and_process_raw_json_file,
@@ -13,7 +14,6 @@ from src.data_cleaner import (
     remove_id_duplicate_keep_min_nan_optimized,
 )
 
-from src.eda import column_summary, create_eda_report
 from src.data_loader import load_processed_file
 
 
@@ -21,14 +21,13 @@ def clean_and_convert_raw_data():
     target_path_processed_data = os.path.join(
         Path.cwd(), "data/raw/psstore_all_games.json"
     )
-    # On filtre les données pour avoir des jeux récents
-    # On enlève également les petits jeux < 4.90 euros (bruits et baisse de prix non representative)
+    # On filtre les données pour cibler la playstation 5 - 2 jours
     df = filter_and_process_raw_json_file(
         target_path_processed_data,
-        released_date_filter=datetime(2020, 10, 10),
-        min_price_ps5=4.9,
-        min_price_ps4=18.9,
-        min_price_dlc=14.9,
+        released_date_filter=datetime(2020, 11, 10),
+        min_price_ps5=1.0,  # Que des jeux payants
+        min_price_ps4=-1.0,  # On ne cible que la console ps5 (on veut prédire sur des jeux récents)
+        min_price_dlc=-1.0,  # On ne cible que des jeux complet, pas d'extensions
     )
 
     # Remove duplicate id_store
@@ -57,10 +56,6 @@ def pipeline_ml_price_prediction(clean_and_convert=False):
 
     if df is None:
         return None
-
-    # column_summary(df)
-
-    create_eda_report(df)
 
     return True
 

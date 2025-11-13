@@ -2,11 +2,15 @@ from datetime import datetime
 import json
 import re
 
+from src.constants.constants import EXTRACT_DATE
+
 
 def is_valid_date(date_str):
     """Vérifie si une date est valide"""
     try:
-        datetime.strptime(date_str, "%Y-%m-%d")
+        entry_date = datetime.strptime(date_str, "%Y-%m-%d")
+        if entry_date > EXTRACT_DATE:
+            return False
         return True
     except ValueError:
         return False
@@ -31,7 +35,7 @@ def merge_and_clean_sales_histories(history1, history2):
                 return None
 
         # Vérifier validité
-        if is_valid_date(date) and price != -1:
+        if is_valid_date(date) and price > 0:
             return date, price
         return None
 
@@ -355,7 +359,7 @@ def get_local_multi_player_count(data) -> tuple[int, int | None]:
     try:
         nb_players = data["PlatPrices"]["OfflinePlayers"]
         nb_players = int(nb_players)
-        if nb_players > 0:
+        if nb_players > 1:
             available = int(1)
             return available, int(nb_players)
     except Exception:
@@ -573,10 +577,10 @@ def get_size(data):
         ps4size = int(ps4size)
         ps5size = int(ps5size)
 
-        if ps4size < 0:
+        if ps4size <= 0:
             ps4size = None
 
-        if ps5size < 0:
+        if ps5size <= 0:
             ps5size = None
 
         return ps4size, ps5size
@@ -856,6 +860,22 @@ def get_sales_history(data):
         result = []
 
     return result
+
+
+def get_max_price_from_ggsales_history_complete(data):
+    try:
+        ggsales = data["GGDeals"]["SalesHistory"]
+    except Exception:
+        ggsales = []
+
+    # Parcourir l'historique pour trouver la première baisse
+    max_price = 0
+    for entry in ggsales:
+        price = entry["y"]
+        if max_price < price:
+            max_price = price
+
+    return max_price
 
 
 def get_base_price(data) -> float | None:
@@ -1894,6 +1914,24 @@ def get_genres_list(data):
             genres_list = []
 
     return genres_list
+
+
+def get_is_remaster(id_store: str, game_name: str):
+    result = 0
+    try:
+        id_store = id_store.lower()
+        game_name = game_name.lower()
+        if "remaster" in id_store:
+            # print(id_store)
+            return 1
+        if "remaster" in game_name:
+            # print(game_name)
+            return 1
+
+    except Exception:
+        result = 0
+
+    return result
 
 
 def get_game_name(file_name: str):

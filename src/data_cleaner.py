@@ -14,7 +14,6 @@ from src.clean.clean_raw_data_helper import (
     get_developer,
     get_difficulty,
     get_dlcs_count,
-    get_game_name,
     get_genres_list,
     get_have_micro_transaction,
     get_how_long,
@@ -23,8 +22,10 @@ from src.clean.clean_raw_data_helper import (
     get_is_ps4,
     get_is_ps5_exclusive,
     get_is_ps5_pro,
+    get_is_remaster,
     get_is_vr,
     get_local_multi_player_count,
+    get_max_price_from_ggsales_history_complete,
     get_metacritic,
     get_min_price_from_sales_history,
     get_online_multi_player_count,
@@ -77,244 +78,21 @@ def remove_game_name_duplicate_keep_min_nan_optimized(df_to_opti: pd.DataFrame):
     return result
 
 
-def convert_and_clean_json_files(
-    folder_path_games, is_ps5_li=0, is_ps4_li=0, is_dlc_li=0
-):
-    contents = os.listdir(folder_path_games)
-    print(len(contents))
+def filter_and_process_raw_json_file_get_ps5_games():
+    # On filtre les données pour cibler la playstation 5
+    target_path_processed_data = os.path.join(
+        Path.cwd(), "data/raw/psstore_all_games.json"
+    )
 
-    # Liste pour stocker toutes les données
-    data_list = []
+    df = filter_and_process_raw_json_file(
+        target_path_processed_data,
+        released_date_filter=datetime(2020, 10, 10),
+        min_price_ps5=1.0,
+        min_price_ps4=200.0,
+        min_price_dlc=200.0,
+    )
 
-    for element in contents:
-        name = get_game_name(element)
-        element_path = os.path.join(folder_path_games, element)
-        with open(element_path, "r", encoding="utf-8") as fp:
-            try:
-                data = json.load(fp)
-                data = data[name]
-                ggdata = data["GGDeals"]
-                psdata = data["PSStore"]
-                platdata = data["PlatPrices"]
-
-                # On ne garde que les jeux avec des datas en nombre suffisant
-                if int(platdata["error"]) > 0:
-                    continue
-
-            except Exception:
-                continue
-
-            # On ne prend que les jeux déjà sortie avant extraction
-            is_futur_game = check_released_date_is_futur(data)
-            if is_futur_game:
-                continue
-
-            short_url_name = name
-            id_store = get_id_store(data)
-            game_name = get_product_name(data)
-            publisher = get_publisher(data)
-            developer = get_developer(data)
-            is_ps5 = is_ps5_li or is_dlc_li
-            is_ps4 = is_ps4_li
-
-            if is_ps5_li or is_dlc_li:
-                is_ps4 = get_is_ps4(data)
-
-            release_date = get_release_date(data)
-            base_price = get_base_price(data)
-
-            # On ne garde que les jeux récents
-            if is_ps4_li or is_ps5_li or is_dlc_li:
-                if release_date is None:
-                    continue
-                # Date de référence :  sortie ps5
-                if release_date < datetime(2020, 10, 10):
-                    continue
-
-            # On ne garde que les prix exploitable
-            if is_ps5_li:
-                if base_price < 4.9:
-                    continue
-
-            if is_ps4_li:
-                if base_price < 18.9:
-                    continue
-
-            if is_dlc_li:
-                if base_price < 14.9:
-                    continue
-
-            pssstore_star_rating = get_psstore_start_rating_average(data)
-            pssstore_star_rating_count = get_psstore_start_rating_total_count(data)
-            genres_list = get_genres_list(data)
-            if len(genres_list) == 0:
-                continue
-
-            series_count = get_serie_count(data)
-            pack_deluxe_count = get_pack_deluxe_count(data)
-            has_micro_transactions = get_have_micro_transaction(data)
-            dlcs_count = get_dlcs_count(data)
-            trophy_count = get_trophys_count(data)
-            is_indie = get_is_indie(data)
-            isps5pro = get_is_ps5_pro(data)
-            ps_exclusive = get_is_ps5_exclusive(data)
-            is_vr = get_is_vr(data)
-
-            local_multi_available, local_multi_nbplayers = get_local_multi_player_count(
-                data
-            )
-            if local_multi_nbplayers is not None:
-                local_multi_nbplayers = int(local_multi_nbplayers)
-
-            online_multi_available, online_multi_nbplayers, online_only = (
-                get_online_multi_player_count(data)
-            )
-            # ici
-
-            difficulty = get_difficulty(data)
-            ps4size, ps5size = get_size(data)
-
-            if is_ps4 == 0:
-                if ps4size is None:
-                    ps4size = 0
-
-            if is_ps5 == 0:
-                if ps5size is None:
-                    ps5size = 0
-
-            low_hour, high_hour = get_how_long(data)
-
-            metacritic_critic_score, metacritic_critic_userscore = get_metacritic(data)
-
-            pegi_rating, esrb_rating, rating_desc = get_rating_pegi_esrb(data)
-            voices_lang, subs_lang = get_voice_subtitle_list(data)
-
-            if len(rating_desc) == 0:
-                rating_desc = None
-
-            if esrb_rating is None and pegi_rating is None:
-                continue
-
-            sales_history = get_sales_history(data)
-
-            # days_until_first = days_until_first_discount(
-            #     sales_history, base_price, release_date
-            # )
-
-            days_until_first_10 = days_until_first_discount(
-                sales_history, base_price, release_date, 10
-            )
-
-            days_until_first_25 = days_until_first_discount(
-                sales_history, base_price, release_date, 25
-            )
-
-            days_until_first_50 = days_until_first_discount(
-                sales_history, base_price, release_date, 50
-            )
-
-            if days_until_first_50 is not None and days_until_first_50 < 2:
-                continue
-
-            days_until_first_75 = days_until_first_discount(
-                sales_history, base_price, release_date, 75
-            )
-
-            if days_until_first_75 is not None and days_until_first_75 < 2:
-                continue
-
-            days_to_first_price_record = days_until_first_sales_record(
-                sales_history, release_date
-            )
-
-            # Si pas de price record et que le nombre de jour est important on considère que le jeu n'a pas eu de prix tracké correctement
-            if days_to_first_price_record > 100 and base_price < 45:
-                continue
-
-            # Pour les jeux triple AAA on laisse plus de doute
-            if days_to_first_price_record > 200:
-                continue
-
-            lowest_price = get_min_price_from_sales_history(sales_history)
-
-            if lowest_price is not None and lowest_price < 0:
-                lowest_price = 0
-
-            if lowest_price is None:
-                continue
-
-            if (
-                days_to_first_price_record is not None
-                and days_to_first_price_record < 0
-            ):
-                days_to_first_price_record = 0
-
-            # print(days_from_first_record)
-
-            additional_features_tags = get_additionnal_features_tags(data)
-
-            # en attente de scrape
-            # ps plus month essential added date, extra added date, premium  added date
-
-            # Créer un dictionnaire avec toutes les données
-            row_data = {
-                "short_url_name": short_url_name,
-                "id_store": id_store,
-                "game_name": game_name,
-                "publisher": publisher,
-                "developer": developer,
-                "release_date": release_date,
-                "pssstore_stars_rating": pssstore_star_rating,
-                "pssstore_stars_rating_count": pssstore_star_rating_count,
-                "metacritic_critic_score": metacritic_critic_score,
-                "metacritic_critic_userscore": metacritic_critic_userscore,
-                "genres": ",".join(genres_list) if genres_list else "",
-                "is_ps4": is_ps4,
-                "is_ps5": is_ps5,
-                "is_indie": is_indie,
-                "is_dlc": is_dlc_li,
-                "is_vr": is_vr,
-                "is_opti_ps5_pro": isps5pro,
-                "is_ps_exclusive": ps_exclusive,
-                "series_count": series_count,
-                "packs_deluxe_count": pack_deluxe_count,
-                "has_microtransactions": has_micro_transactions,
-                "dlcs_count": dlcs_count,
-                "trophies_count": trophy_count,
-                "has_local_multiplayer": local_multi_available,
-                "local_multiplayer_max_players": local_multi_nbplayers,
-                "has_online_multiplayer": online_multi_available,
-                "online_multiplayer_max_players": online_multi_nbplayers,
-                "is_online_only": online_only,
-                "difficulty": difficulty,
-                "download_size_ps4": ps4size,
-                "download_size_ps5": ps5size,
-                "hours_main_story": low_hour,
-                "hours_completionist": high_hour,
-                "pegi_rating": pegi_rating,
-                "esrb_rating": esrb_rating,
-                "rating_descriptions": ",".join(rating_desc) if rating_desc else "",
-                "voice_languages": ",".join(voices_lang) if voices_lang else "",
-                "subtitle_languages": ",".join(subs_lang) if subs_lang else "",
-                "additional_features_tags": (
-                    ",".join(additional_features_tags)
-                    if additional_features_tags
-                    else ""
-                ),
-                "base_price": base_price,
-                "lowest_price": lowest_price,
-                # "days_to_first_price_record": days_to_first_price_record,
-                # "days_to_first_discount": days_until_first,
-                "days_to_10_percent_discount": days_until_first_10,
-                "days_to_25_percent_discount": days_until_first_25,
-                "days_to_50_percent_discount": days_until_first_50,
-                "days_to_75_percent_discount": days_until_first_75,
-                # "price_history": json.dumps(sales_history) if sales_history else None,
-            }
-
-            data_list.append(row_data)
-
-    return data_list
+    return df
 
 
 def filter_and_process_raw_json_file(
@@ -326,6 +104,12 @@ def filter_and_process_raw_json_file(
 ):
     # Liste pour stocker toutes les données
     data_list = []
+
+    if min_price_dlc < 0:
+        min_price_dlc = 1000
+
+    if min_price_ps4 < 0:
+        min_price_ps4 = 1000
 
     with open(file_path, "r", encoding="utf-8") as fp:
         try:
@@ -380,6 +164,14 @@ def filter_and_process_raw_json_file(
                     release_date = get_release_date(data)
                     base_price = get_base_price(data)
 
+                    if base_price > 90:
+                        # Verify price twice
+                        ggprice = get_max_price_from_ggsales_history_complete(data)
+                        if ggprice > 0:
+                            base_price = ggprice
+
+                        # print(short_url_name)
+
                     # On ne garde que les jeux récents
                     if is_ps4_li or is_ps5_li or is_dlc_li:
                         if release_date is None:
@@ -406,9 +198,6 @@ def filter_and_process_raw_json_file(
                         data
                     )
                     genres_list = get_genres_list(data)
-                    if len(genres_list) == 0:
-                        continue
-
                     series_count = get_serie_count(data)
                     pack_deluxe_count = get_pack_deluxe_count(data)
                     has_micro_transactions = get_have_micro_transaction(data)
@@ -418,6 +207,7 @@ def filter_and_process_raw_json_file(
                     isps5pro = get_is_ps5_pro(data)
                     ps_exclusive = get_is_ps5_exclusive(data)
                     is_vr = get_is_vr(data)
+                    is_remaster = get_is_remaster(id_store, game_name)
 
                     local_multi_available, local_multi_nbplayers = (
                         get_local_multi_player_count(data)
@@ -428,18 +218,17 @@ def filter_and_process_raw_json_file(
                     online_multi_available, online_multi_nbplayers, online_only = (
                         get_online_multi_player_count(data)
                     )
-                    # ici
 
                     difficulty = get_difficulty(data)
                     ps4size, ps5size = get_size(data)
 
-                    if is_ps4 == 0:
-                        if ps4size is None:
-                            ps4size = 0
+                    # if is_ps4 == 0:
+                    #     if ps4size is None:
+                    #         ps4size = 0
 
-                    if is_ps5 == 0:
-                        if ps5size is None:
-                            ps5size = 0
+                    # if is_ps5 == 0:
+                    #     if ps5size is None:
+                    #         ps5size = 0
 
                     low_hour, high_hour = get_how_long(data)
 
@@ -458,10 +247,6 @@ def filter_and_process_raw_json_file(
 
                     sales_history = get_sales_history(data)
 
-                    # days_until_first = days_until_first_discount(
-                    #     sales_history, base_price, release_date
-                    # )
-
                     days_until_first_10 = days_until_first_discount(
                         sales_history, base_price, release_date, 10
                     )
@@ -474,27 +259,13 @@ def filter_and_process_raw_json_file(
                         sales_history, base_price, release_date, 50
                     )
 
-                    if days_until_first_50 is not None and days_until_first_50 < 2:
-                        continue
-
                     days_until_first_75 = days_until_first_discount(
                         sales_history, base_price, release_date, 75
                     )
 
-                    if days_until_first_75 is not None and days_until_first_75 < 2:
-                        continue
-
                     days_to_first_price_record = days_until_first_sales_record(
                         sales_history, release_date
                     )
-
-                    # # Si pas de price record et que le nombre de jour est important on considère que le jeu n'a pas eu de prix tracké correctement
-                    # if days_to_first_price_record > 100 and base_price < 45:
-                    #     continue
-
-                    # # Pour les jeux triple AAA on laisse plus de doute
-                    # if days_to_first_price_record > 200:
-                    #     continue
 
                     lowest_price = get_min_price_from_sales_history(sales_history)
 
@@ -516,9 +287,6 @@ def filter_and_process_raw_json_file(
 
                     additional_features_tags = get_additionnal_features_tags(data)
 
-                    # en attente de scrape
-                    # ps plus month essential added date, extra added date, premium  added date
-
                     # Créer un dictionnaire avec toutes les données
                     row_data = {
                         "short_url_name": short_url_name,
@@ -538,6 +306,7 @@ def filter_and_process_raw_json_file(
                         "is_dlc": is_dlc,
                         "is_vr": is_vr,
                         "is_opti_ps5_pro": isps5pro,
+                        "is_remaster": is_remaster,
                         "is_ps_exclusive": ps_exclusive,
                         "series_count": series_count,
                         "packs_deluxe_count": pack_deluxe_count,
@@ -550,8 +319,8 @@ def filter_and_process_raw_json_file(
                         "online_multiplayer_max_players": online_multi_nbplayers,
                         "is_online_only": online_only,
                         "difficulty": difficulty,
-                        "download_size_ps4": ps4size,
-                        "download_size_ps5": ps5size,
+                        # "download_size_ps4": ps4size,
+                        "download_size": ps5size,
                         "hours_main_story": low_hour,
                         "hours_completionist": high_hour,
                         "pegi_rating": pegi_rating,
@@ -561,20 +330,21 @@ def filter_and_process_raw_json_file(
                         ),
                         "voice_languages": ",".join(voices_lang) if voices_lang else "",
                         "subtitle_languages": ",".join(subs_lang) if subs_lang else "",
-                        "additional_features_tags": (
-                            ",".join(additional_features_tags)
-                            if additional_features_tags
-                            else ""
-                        ),
+                        # "additional_features_tags": (
+                        #     ",".join(additional_features_tags)
+                        #     if additional_features_tags
+                        #     else ""
+                        # ),
                         "base_price": base_price,
                         "lowest_price": lowest_price,
-                        "days_to_first_price_record": days_to_first_price_record,
-                        # "days_to_first_discount": days_until_first,
-                        "days_to_10_percent_discount": days_until_first_10,
-                        "days_to_25_percent_discount": days_until_first_25,
-                        "days_to_50_percent_discount": days_until_first_50,
-                        "days_to_75_percent_discount": days_until_first_75,
-                        # "price_history": json.dumps(sales_history) if sales_history else None,
+                        # "days_to_first_price_record": days_to_first_price_record,
+                        # "days_to_10_percent_discount": days_until_first_10,
+                        # "days_to_25_percent_discount": days_until_first_25,
+                        # "days_to_50_percent_discount": days_until_first_50,
+                        # "days_to_75_percent_discount": days_until_first_75,
+                        "price_history": (
+                            json.dumps(sales_history) if sales_history else None
+                        ),
                     }
 
                     data_list.append(row_data)
@@ -591,19 +361,19 @@ def filter_and_process_raw_json_file(
         "local_multiplayer_max_players",
         "online_multiplayer_max_players",
         "difficulty",
-        "download_size_ps4",
-        "download_size_ps5",
+        "download_size",
+        # "download_size_ps5",
         "hours_main_story",
         "hours_completionist",
         "metacritic_critic_score",
         "metacritic_critic_userscore",
         "pegi_rating",
-        "days_to_first_price_record",
+        # "days_to_first_price_record",
         # "days_to_first_discount",
-        "days_to_10_percent_discount",
-        "days_to_25_percent_discount",
-        "days_to_50_percent_discount",
-        "days_to_75_percent_discount",
+        # "days_to_10_percent_discount",
+        # "days_to_25_percent_discount",
+        # "days_to_50_percent_discount",
+        # "days_to_75_percent_discount",
     ]
 
     for col in col_to_int_nullable:

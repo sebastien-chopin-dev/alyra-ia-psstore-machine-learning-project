@@ -7,6 +7,7 @@ import json
 import pandas as pd
 from src.clean.clean_raw_data_helper import (
     check_released_date_is_futur,
+    clean_and_merge_publishers,
     days_until_first_discount,
     days_until_first_sales_record,
     get_additionnal_features_tags,
@@ -378,6 +379,9 @@ def filter_and_process_raw_json_file(
 
     for col in col_to_int_nullable:
         data_frame_games[col] = data_frame_games[col].astype("Int64")
+
+    # Clean de la colonne publisher
+    data_frame_games = clean_and_merge_publishers(data_frame_games)
 
     return data_frame_games
 

@@ -1,6 +1,8 @@
 from datetime import datetime
 import json
 import re
+from difflib import SequenceMatcher
+import pandas as pd
 
 from src.constants.constants import EXTRACT_DATE
 
@@ -1936,3 +1938,158 @@ def get_is_remaster(id_store: str, game_name: str):
 
 def get_game_name(file_name: str):
     return file_name.replace(".json", "")
+
+
+def clean_and_merge_publishers(
+    df: pd.DataFrame,
+    publisher_col: str = "publisher",
+    similarity_threshold: float = 0.85,
+) -> pd.DataFrame:
+    """
+    Nettoie et fusionne les noms de publishers similaires (fautes d'orthographe, variations)
+    """
+    df_result = df.copy()
+
+    # Dictionnaire de corrections manuelles
+    manual_corrections = {
+        "Bandai Namco Entertainment": [
+            "Bandai Namco",
+            "BANDAI NAMCO Entertainment",
+            "Bandai Namco Entertainment Inc.",
+        ],
+        "Square Enix": ["SQUARE ENIX", "Square Enix Co., Ltd."],
+        "Capcom": ["CAPCOM", "Capcom Co., Ltd."],
+        "Ubisoft": ["UBISOFT", "Ubisoft Entertainment"],
+        "Electronic Arts": ["EA", "EA Sports", "Electronic Arts Inc."],
+        "Sony Interactive Entertainment": [
+            "SIE",
+            "Sony Interactive Entertainment LLC",
+            "PlayStation Studios",
+        ],
+        "Activision": ["Activision Publishing", "Activision Blizzard"],
+        "Warner Bros": ["Warner Bros.", "Warner Bros. Games", "WB Games"],
+        "SEGA": ["Sega", "SEGA Corporation"],
+        "Bethesda": ["Bethesda Softworks", "Bethesda Game Studios"],
+        "Take-Two Interactive": ["Take-Two", "2K Games", "2K"],
+        "Rockstar Games": ["Rockstar", "Rockstar North"],
+        "Microids": ["Microïds", "Microids SA"],
+        "Team17": ["Team17 Digital", "Team17 Digital Limited"],
+        "Devolver Digital": ["Devolver", "Devolver Digital Inc."],
+    }
+
+    # Fonction de nettoyage de base
+    def clean_publisher_name(name):
+        if pd.isna(name):
+            return name
+
+        name = str(name).strip()
+
+        # Supprimer les suffixes corporatifs communs
+        suffixes = [
+            " Inc.",
+            " Inc",
+            " LLC",
+            " Ltd.",
+            " Ltd",
+            " Co., Ltd.",
+            " Corporation",
+            " Corp.",
+            " Corp",
+            " SA",
+            " GmbH",
+            " AB",
+        ]
+        for suffix in suffixes:
+            if name.endswith(suffix):
+                name = name[: -len(suffix)].strip()
+
+        return name
+
+    # Étape 1: Nettoyage de base
+    df_result[f"{publisher_col}_clean"] = df_result[publisher_col].apply(
+        clean_publisher_name
+    )
+
+    # Étape 2: Corrections manuelles
+    reverse_mapping = {}
+    for canonical, variations in manual_corrections.items():
+        for variation in variations:
+            reverse_mapping[variation] = canonical
+            reverse_mapping[clean_publisher_name(variation)] = canonical
+
+    df_result[f"{publisher_col}_temp"] = df_result[f"{publisher_col}_clean"].apply(
+        lambda x: reverse_mapping.get(x, x) if pd.notna(x) else x
+    )
+
+    # Étape 3: Fusion par similarité
+
+    # Obtenir les publishers uniques et leurs fréquences
+    publisher_counts = df_result[f"{publisher_col}_temp"].value_counts()
+    unique_publishers = publisher_counts.index.tolist()
+
+    # Créer un mapping de similarité
+    similarity_mapping = {}
+    processed = set()
+    merged_count = 0
+
+    for i, pub1 in enumerate(unique_publishers):
+        if pd.isna(pub1) or pub1 in processed:
+            continue
+
+        # Garder le publisher le plus fréquent comme canonical
+        canonical = pub1
+        count1 = publisher_counts[pub1]
+
+        for pub2 in unique_publishers[i + 1 :]:
+            if pd.isna(pub2) or pub2 in processed:
+                continue
+
+            # Calculer la similarité
+            similarity = SequenceMatcher(
+                None, str(pub1).lower(), str(pub2).lower()
+            ).ratio()
+
+            if similarity >= similarity_threshold:
+                count2 = publisher_counts[pub2]
+
+                # Le plus fréquent devient le canonical
+                if count2 > count1:
+                    canonical = pub2
+                    count1 = count2
+
+                similarity_mapping[pub2] = canonical
+                processed.add(pub2)
+                merged_count += 1
+
+                print(
+                    f"   ✓ Fusion: '{pub2}' → '{canonical}' (similarité: {similarity:.2f})"
+                )
+
+    # Appliquer le mapping de similarité
+    df_result[f"{publisher_col}_normalized"] = df_result[f"{publisher_col}_temp"].apply(
+        lambda x: similarity_mapping.get(x, x) if pd.notna(x) else x
+    )
+
+    # Stats
+    original_count = df_result[publisher_col].nunique()
+    cleaned_count = df_result[f"{publisher_col}_normalized"].nunique()
+
+    print(f"\n📊 Résultats du nettoyage:")
+    print(f"   Publishers originaux: {original_count}")
+    print(f"   Publishers après nettoyage: {cleaned_count}")
+    print(
+        f"   Réduction: {original_count - cleaned_count} ({(original_count - cleaned_count) / original_count * 100:.1f}%)"
+    )
+    print(f"   Fusions automatiques: {merged_count}")
+
+    # Remplacer la colonne originale et nettoyer
+    df_result[publisher_col] = df_result[f"{publisher_col}_normalized"]
+    df_result = df_result.drop(
+        columns=[
+            f"{publisher_col}_clean",
+            f"{publisher_col}_temp",
+            f"{publisher_col}_normalized",
+        ]
+    )
+
+    return df_result

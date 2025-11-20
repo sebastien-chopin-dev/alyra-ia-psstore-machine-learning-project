@@ -381,7 +381,7 @@ def filter_and_process_raw_json_file(
         data_frame_games[col] = data_frame_games[col].astype("Int64")
 
     # Clean de la colonne publisher
-    data_frame_games = clean_and_merge_publishers(data_frame_games)
+    data_frame_games = clean_and_merge_publishers(data_frame_games, "publisher")
 
     return data_frame_games
 

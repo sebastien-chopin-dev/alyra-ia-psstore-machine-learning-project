@@ -1940,156 +1940,225 @@ def get_game_name(file_name: str):
     return file_name.replace(".json", "")
 
 
+def clean_publisher_name(name):
+    """
+    Nettoyage et normalisation avancée des noms de publishers
+    Tous les noms sont convertis en minuscules
+    """
+    if pd.isna(name):
+        return name
+
+    # Convertir en string et nettoyer les espaces
+    name = str(name).strip()
+
+    # Supprimer les caractères spéciaux problématiques en début/fin
+    name = re.sub(r"^[^\w]+|[^\w]+$", "", name, flags=re.UNICODE)
+
+    # Liste exhaustive des suffixes corporatifs (regex insensible à la casse)
+    corporate_suffixes = [
+        # Suffixes anglo-saxons
+        r"\s+Inc\.?",
+        r"\s+Incorporated",
+        r"\s+LLC",
+        r"\s+L\.L\.C\.?",
+        r"\s+Ltd\.?",
+        r"\s+LTD",
+        r"\s+LTDA",
+        r"\s+Limited",
+        r"\s+Co\.,?\s*Ltd\.?",
+        r"\s+Corporation",
+        r"\s+Corp\.?",
+        r"\s+PTE\.?",
+        r"\s+Pte\.?\s*Ltd\.?",
+        r"\s+PLC",
+        r"\s+Co\.?,?",
+        r"\s+CO\.?,?",
+        # Suffixes avec descriptions (ex: T/a, A/S)
+        r"\s+S\.A\.\s+T/a\s+[^,]+",
+        r"\s+A/S",
+        r"\s+A/V",
+        # Suffixes européens (France, Espagne, Italie)
+        r"\s+S\.A\.S\.U\.?",
+        r"\s+SASU",
+        r"\s+S\.A\.S\.?",
+        r"\s+SAS",
+        r"\s+S\.?\s*A\.?,?",
+        r"\s+SA",
+        r"\s+S\.A\.R\.L\.?",
+        r"\s+SARL",
+        r"\s+Sarl",
+        r"\s+S\.L\.U\.?",
+        r"\s+SLU",
+        r"\s+S\.L\.?",
+        r"\s+SL",
+        r"\s+Sociedad\s+Limitada",
+        r"\s+S\.R\.L\.?",
+        r"\s+SRL",
+        r"\s+S\.r\.l\.?",
+        r"\s+De\s+R\.L",
+        # Suffixes allemands/autrichiens
+        r"\s+GmbH\s+&\s+Co\.?\s+KG",
+        r"\s+GmbH",
+        r"\s+GMBH",
+        r"\s+AG",
+        r"\s+UG",
+        # Suffixes Pays-Bas/Belgique
+        r"\s+B\.V\.?",
+        r"\s+BV",
+        r"\s+N\.V\.?",
+        r"\s+NV",
+        # Suffixes d'Europe de l'Est
+        r"\s+Z\s*O\.O\.?",
+        r"\s+z\s*o\.\s*o\.?",
+        r"\s+Sp\.?\s*Z\.?o\.o\.?",
+        r"\s+Sp\.\s*z\s*o\.o\.?",
+        r"\s+Sp\.\s*Z\s*O\.\s*O\.?",
+        r"\s+S\.\s*R\.\s*O\.?",
+        r"\s+s\.\s*r\.\s*o\.?",
+        r"\s+S\.r\.o\.?",
+        r"\s+D\.o\.o\.?",
+        r"\s+d\.o\.o\.?",
+        r"\s+Sp\.\s*K\.?",
+        # Suffixes asiatiques
+        r"\s+Sdn\.?\s*Bhd\.?,?",
+        r"\s+KK",
+        r"\s+K\.K\.?",
+        # Suffixes nordiques
+        r"\s+AB",
+        r"\s+AS",
+        r"\s+Oy",
+        # Suffixes australiens
+        r"\s+Pty\s+Ltd",
+        # Autres
+        r"\s+Int\'l(\s+BV)?",
+        r"\s+International",
+        r",\s*INC\.?",
+        r"\s+sp\.?",
+        # Mentions géographiques
+        r"\s+Europe",
+        r"\s+EUROPE",
+        r"\s+America",
+        r"\s+U\.S\.A\.?,?",
+        r"\s+USA",
+        r"\s+UK",
+        r"\s+Japan",
+    ]
+
+    # Supprimer tous les suffixes (plusieurs passes pour les cas multiples)
+    for _ in range(3):
+        original = name
+        for suffix_pattern in corporate_suffixes:
+            name = re.sub(suffix_pattern + r"$", "", name, flags=re.IGNORECASE).strip()
+        if name == original:
+            break
+
+    # Supprimer les virgules finales restantes
+    name = name.rstrip(",").strip()
+
+    # Normaliser les espaces multiples
+    name = re.sub(r"\s+", " ", name)
+
+    # Supprimer les parenthèses vides et leur contenu si peu informatif
+    name = re.sub(r"\s*\([^)]*\)\s*$", "", name).strip()
+
+    # Supprimer à nouveau les virgules après nettoyage
+    name = name.rstrip(",").strip()
+
+    # CONVERTIR EN MINUSCULES
+    name = name.lower()
+
+    # Nettoyer les espaces et virgules finaux une dernière fois
+    name = name.strip().rstrip(",").strip()
+
+    return name
+
+
 def clean_and_merge_publishers(
-    df: pd.DataFrame,
-    publisher_col: str = "publisher",
-    similarity_threshold: float = 0.85,
+    df: pd.DataFrame, publisher_col: str = "publisher"
 ) -> pd.DataFrame:
     """
     Nettoie et fusionne les noms de publishers similaires (fautes d'orthographe, variations)
     """
     df_result = df.copy()
 
-    # Dictionnaire de corrections manuelles
+    # Dictionnaire de corrections manuelles basé sur l'analyse du fichier
     manual_corrections = {
-        "Bandai Namco Entertainment": [
-            "Bandai Namco",
-            "BANDAI NAMCO Entertainment",
-            "Bandai Namco Entertainment Inc.",
+        # Variations communes détectées
+        "bandai namco entertainment": [
+            "bandai namco",
+            "bandai namco entertainment inc.",
         ],
-        "Square Enix": ["SQUARE ENIX", "Square Enix Co., Ltd."],
-        "Capcom": ["CAPCOM", "Capcom Co., Ltd."],
-        "Ubisoft": ["UBISOFT", "Ubisoft Entertainment"],
-        "Electronic Arts": ["EA", "EA Sports", "Electronic Arts Inc."],
-        "Sony Interactive Entertainment": [
-            "SIE",
-            "Sony Interactive Entertainment LLC",
-            "PlayStation Studios",
+        "square enix": ["square enix co., ltd."],
+        "capcom": ["capcom co., ltd."],
+        "ubisoft": ["ubisoft entertainment"],
+        "electronic arts": ["ea", "ea sports", "electronic arts inc.", "ea swiss"],
+        "sony interactive entertainment": [
+            "sie",
+            "sony interactive entertainment llc",
+            "playstation studios",
+            "sony pictures virtual reality (spvr",
         ],
-        "Activision": ["Activision Publishing", "Activision Blizzard"],
-        "Warner Bros": ["Warner Bros.", "Warner Bros. Games", "WB Games"],
-        "SEGA": ["Sega", "SEGA Corporation"],
-        "Bethesda": ["Bethesda Softworks", "Bethesda Game Studios"],
-        "Take-Two Interactive": ["Take-Two", "2K Games", "2K"],
-        "Rockstar Games": ["Rockstar", "Rockstar North"],
-        "Microids": ["Microïds", "Microids SA"],
-        "Team17": ["Team17 Digital", "Team17 Digital Limited"],
-        "Devolver Digital": ["Devolver", "Devolver Digital Inc."],
+        "activision": ["activision publishing", "activision blizzard"],
+        "warner bros": [
+            "warner bros.",
+            "warner bros. games",
+            "wb games",
+            "warner bros. interactive",
+            "warner bros interactive entertainment",
+        ],
+        "sega": ["sega corporation", "sega of america"],
+        "bethesda": ["bethesda softworks", "bethesda game studios"],
+        "take-two interactive": ["take-two", "2k games", "2k"],
+        "rockstar games": ["rockstar", "rockstar north"],
+        "microids": ["microïds", "microids sa"],
+        "team17": ["team17 digital", "team17 digital limited"],
+        "devolver digital": ["devolver", "devolver digital inc."],
+        "konami": ["konami digital entertainment"],
+        "disney interactive": [
+            "disney interactive studios",
+        ],
+        "koei tecmo": [
+            "koei tecmo games",
+        ],
+        "rebellion": [
+            "rebellion interactive",  # Inverser : rebellion est plus court
+        ],
     }
 
-    # Fonction de nettoyage de base
-    def clean_publisher_name(name):
-        if pd.isna(name):
-            return name
-
-        name = str(name).strip()
-
-        # Supprimer les suffixes corporatifs communs
-        suffixes = [
-            " Inc.",
-            " Inc",
-            " LLC",
-            " Ltd.",
-            " Ltd",
-            " Co., Ltd.",
-            " Corporation",
-            " Corp.",
-            " Corp",
-            " SA",
-            " GmbH",
-            " AB",
-        ]
-        for suffix in suffixes:
-            if name.endswith(suffix):
-                name = name[: -len(suffix)].strip()
-
-        return name
-
-    # Étape 1: Nettoyage de base
+    # Appliquer le nettoyage de base
     df_result[f"{publisher_col}_clean"] = df_result[publisher_col].apply(
         clean_publisher_name
     )
 
-    # Étape 2: Corrections manuelles
+    # ✅ CORRECTION : Créer le reverse_mapping
     reverse_mapping = {}
     for canonical, variations in manual_corrections.items():
+        # Le canonical est déjà en minuscules
         for variation in variations:
-            reverse_mapping[variation] = canonical
-            reverse_mapping[clean_publisher_name(variation)] = canonical
+            # Nettoyer chaque variation
+            cleaned_variation = clean_publisher_name(variation)
+            reverse_mapping[cleaned_variation] = canonical
 
-    df_result[f"{publisher_col}_temp"] = df_result[f"{publisher_col}_clean"].apply(
-        lambda x: reverse_mapping.get(x, x) if pd.notna(x) else x
-    )
-
-    # Étape 3: Fusion par similarité
-
-    # Obtenir les publishers uniques et leurs fréquences
-    publisher_counts = df_result[f"{publisher_col}_temp"].value_counts()
-    unique_publishers = publisher_counts.index.tolist()
-
-    # Créer un mapping de similarité
-    similarity_mapping = {}
-    processed = set()
-    merged_count = 0
-
-    for i, pub1 in enumerate(unique_publishers):
-        if pd.isna(pub1) or pub1 in processed:
-            continue
-
-        # Garder le publisher le plus fréquent comme canonical
-        canonical = pub1
-        count1 = publisher_counts[pub1]
-
-        for pub2 in unique_publishers[i + 1 :]:
-            if pd.isna(pub2) or pub2 in processed:
-                continue
-
-            # Calculer la similarité
-            similarity = SequenceMatcher(
-                None, str(pub1).lower(), str(pub2).lower()
-            ).ratio()
-
-            if similarity >= similarity_threshold:
-                count2 = publisher_counts[pub2]
-
-                # Le plus fréquent devient le canonical
-                if count2 > count1:
-                    canonical = pub2
-                    count1 = count2
-
-                similarity_mapping[pub2] = canonical
-                processed.add(pub2)
-                merged_count += 1
-
-                print(
-                    f"   ✓ Fusion: '{pub2}' → '{canonical}' (similarité: {similarity:.2f})"
-                )
-
-    # Appliquer le mapping de similarité
-    df_result[f"{publisher_col}_normalized"] = df_result[f"{publisher_col}_temp"].apply(
-        lambda x: similarity_mapping.get(x, x) if pd.notna(x) else x
-    )
+    # Appliquer les corrections manuelles
+    df_result[f"{publisher_col}_normalized"] = df_result[
+        f"{publisher_col}_clean"
+    ].apply(lambda x: reverse_mapping.get(x, x) if pd.notna(x) else x)
 
     # Stats
     original_count = df_result[publisher_col].nunique()
     cleaned_count = df_result[f"{publisher_col}_normalized"].nunique()
 
-    print(f"\n📊 Résultats du nettoyage:")
+    print(f"📊 Résultats du nettoyage:")
     print(f"   Publishers originaux: {original_count}")
     print(f"   Publishers après nettoyage: {cleaned_count}")
     print(
         f"   Réduction: {original_count - cleaned_count} ({(original_count - cleaned_count) / original_count * 100:.1f}%)"
     )
-    print(f"   Fusions automatiques: {merged_count}")
 
-    # Remplacer la colonne originale et nettoyer
+    # Remplacer la colonne originale
     df_result[publisher_col] = df_result[f"{publisher_col}_normalized"]
     df_result = df_result.drop(
-        columns=[
-            f"{publisher_col}_clean",
-            f"{publisher_col}_temp",
-            f"{publisher_col}_normalized",
-        ]
+        columns=[f"{publisher_col}_clean", f"{publisher_col}_normalized"]
     )
 
     return df_result

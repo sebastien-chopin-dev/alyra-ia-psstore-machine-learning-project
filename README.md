@@ -10,3 +10,5 @@
 - `pip install seaborn`
 - `pip install scikit-learn`
 - `pip install xgboost`
+- `pip install catboost`
+- `pip install lightgbm`

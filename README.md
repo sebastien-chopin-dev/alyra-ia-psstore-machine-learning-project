@@ -8,6 +8,7 @@
 - `pip install matplotlib`
 - `pip install numpy`
 - `pip install seaborn`
+- `pip install dython`
 - `pip install scikit-learn`
 - `pip install xgboost`
 - `pip install catboost`

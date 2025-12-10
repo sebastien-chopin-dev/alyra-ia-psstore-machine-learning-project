@@ -1,7 +1,6 @@
 from datetime import datetime
 import json
 import re
-from difflib import SequenceMatcher
 import pandas as pd
 
 from src.constants.constants import EXTRACT_DATE
@@ -2130,7 +2129,7 @@ def clean_and_merge_publishers(
         clean_publisher_name
     )
 
-    # ✅ CORRECTION : Créer le reverse_mapping
+    # CORRECTION : Créer le reverse_mapping
     reverse_mapping = {}
     for canonical, variations in manual_corrections.items():
         # Le canonical est déjà en minuscules
@@ -2148,7 +2147,7 @@ def clean_and_merge_publishers(
     original_count = df_result[publisher_col].nunique()
     cleaned_count = df_result[f"{publisher_col}_normalized"].nunique()
 
-    print(f"📊 Résultats du nettoyage:")
+    print(f"Résultats du nettoyage:")
     print(f"   Publishers originaux: {original_count}")
     print(f"   Publishers après nettoyage: {cleaned_count}")
     print(

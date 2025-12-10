@@ -2,8 +2,6 @@ from datetime import datetime
 from pathlib import Path
 import os
 
-# import seaborn as sns
-
 from src.clean.clean_raw_data import (
     filter_and_process_raw_json_file,
     create_csv,
@@ -45,17 +43,22 @@ def clean_and_convert_raw_data():
 
 
 # Load processed file
-def pipeline_ml_price_prediction(clean_and_convert=False):
+def main(clean_and_convert=False):
     if clean_and_convert:
         clean_and_convert_raw_data()
 
     df = load_processed_file()
 
     if df is None:
+        print("Erreur lors du chargement du fichier raw traité.")
         return None
+    else:
+        print(
+            f"DataFrame raw traité chargé avec {len(df)} lignes et {len(df.columns)} colonnes"
+        )
 
     return True
 
 
 if __name__ == "__main__":
-    pipeline_ml_price_prediction(True)
+    main(True)
